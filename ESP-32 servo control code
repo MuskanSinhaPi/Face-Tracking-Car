@@ -1,0 +1,59 @@
+//put this in to line 22 of the app_httpd.cpp file
+#include "ESP32Servo.h"
+// 
+
+//insert this code to line 75 of the app_httpd.cpp file:
+int servoPin1 = 15;
+int servoPin2 = 14;
+int x_pos;
+int y_pos;
+int delta_x;
+int delta_y;
+
+Servo myservo1;
+Servo myservo2;
+//
+
+////pantilt code
+//insert this code to line 243 of the app_httpd.cpp file:
+ESP32PWM::allocateTimer(0);
+ESP32PWM::allocateTimer(1);
+ESP32PWM::allocateTimer(2);
+ESP32PWM::allocateTimer(3); 
+
+if (!myservo1.attached()) {
+	myservo1.setPeriodHertz(50); // standard 50 hz servo
+	myservo1.attach(servoPin1, 1000, 2000); // Attach the servo after it has been detatched
+}
+if (!myservo2.attached()) {
+	myservo2.setPeriodHertz(50); // standard 50 hz servo
+	myservo2.attach(servoPin2, 1000, 2000); // Attach the servo after it has been detatched
+}          
+
+int x_cent = x + (w/2);   //find center point on the x axis 
+int y_cent = y + (h/2);   //find center point on the y axis
+
+int delta_x = ((x_cent - 120)/3)^2;//tune the response of the servos by varying the divisor and exponential values
+int delta_y = ((y_cent - 120)/3)^2;
+      
+int x_pos_temp = x_pos;
+int y_pos_temp = y_pos;
+for (i = 1; i <= 10; i++) {                  	//use 10 steps for each adjustment
+ 	x_pos = x_pos_temp - (i*delta_x)/10; 	//pan
+        if (x_pos > 180) {   			//upper x servo limit
+         	x_pos = 180; }     		//
+        if (x_pos < 0) {    			//lower x servo limit
+        	x_pos = 0; } 
+        myservo1.write(x_pos);			// tell servo to go to position   
+	delay(15);           			// waits 15ms for the servo 
+  
+        y_pos = y_pos_temp - (i*delta_y)/10; 	//tilt
+        if (y_pos > 140) {   			//upper y servo limit
+        	y_pos = 140; }     		//
+        if (y_pos < 40) {    			//lower y servo limit
+        	y_pos = 40; }       		//
+        myservo2.write(y_pos);			// tell servo to go to position
+	delay(15);				// waits 15ms for the servo
+         delay(50);				//varies the speed of the servos
+}
+////end pantilt code         
