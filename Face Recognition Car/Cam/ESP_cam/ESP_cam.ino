@@ -3,8 +3,8 @@
 #include <Wire.h>             
 #include "images.h"
 
-static const char* WIFI_SSID = "Muskan";
-static const char* WIFI_PASS = "muskan2002";
+static const char* WIFI_SSID = "NSUT_WIFI";
+static const char* WIFI_PASS = "";
 
 esp32cam::Resolution initialResolution;
 
