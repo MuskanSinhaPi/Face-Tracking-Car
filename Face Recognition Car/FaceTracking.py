@@ -1,173 +1,170 @@
-import numpy as np
-import sys
-import time
-import serial
 import cv2
+import serial
+import time
 import requests
-import urllib
-import face_recognition
-import os
+import numpy as np
 
-# ESP32-CAM IP address
-esp32cam_url = 'http://192.168.1.101/640x480.jpg'
-arduino = serial.Serial('/dev/cu.usbmodem1101', 9600)
-time.sleep(2)  # Wait for initialization
-print("Initialized")
+# Variables
+x, y, h, w = 0, 0, 0, 0
+DISTANCE = 0
 
-# Function to fetch images from ESP32-CAM
-def get_esp32cam_image():
+# Known distance and width
+Known_distance = 31.5  # Inches
+Known_width = 5.7  # Inches
+
+# Colors in BGR format
+GREEN = (0, 255, 0)
+RED = (0, 0, 255)
+BLACK = (0, 0, 0)
+YELLOW = (0, 255, 255)
+PURPLE = (255, 0, 255)
+WHITE = (255, 255, 255)
+
+# Font styles
+fonts = cv2.FONT_HERSHEY_COMPLEX
+fonts2 = cv2.FONT_HERSHEY_SCRIPT_SIMPLEX
+fonts3 = cv2.FONT_HERSHEY_COMPLEX_SMALL
+fonts4 = cv2.FONT_HERSHEY_TRIPLEX
+
+# Face detector object
+face_detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+
+# Focal length finder function
+def FocalLength(measured_distance, real_width, width_in_rf_image):
+    focal_length = (width_in_rf_image * measured_distance) / real_width
+    return focal_length
+
+# Distance estimation function
+def Distance_finder(Focal_Length, real_face_width, face_width_in_frame):
+    distance = (real_face_width * Focal_Length) / face_width_in_frame
+    return distance
+
+# Face detection function
+
+def face_data(image, CallOut, Distance_level):
+    face_width = 0
+    face_x, face_y = 0, 0
+    face_center_x = 0
+    face_center_y = 0
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    scaleFactor = 1.3
+    minNeighbors = 5
+    minSize = (30, 30)
+    faces = face_detector.detectMultiScale(gray_image, scaleFactor=1.301, minNeighbors=5, minSize=(10, 10))
+    
+    # Check if Distance_level is None, and set a default value if so
+    if Distance_level is None:
+        Distance_level = float('inf')  # Set to infinity
+    
+    for (x, y, h, w) in faces:
+        face_width = w
+        face_center_x = int(w/2) + x
+        face_center_y = int(h/2) + y
+    
+
+        # if CallOut:
+            # Draw bounding box and distance indicator
+            # cv2.rectangle(image, (x, y), (x+w, y+h), GREEN, 2)
+            # cv2.line(image, (x, y-11), (x+210, y-11), YELLOW, 25)
+            # # cv2.line(image, (x, y-11), (x+Distance_level, y-11), GREEN, 25)
+            # cv2.line(image, (x, y-11), (x+(Distance_level), y-11), GREEN, 25)
+            # pass
+    return face_width, faces, face_center_x, face_center_y
+
+
+# Function to fetch image from ESP32-CAM
+def fetch_image(url):
     try:
-        response = requests.get(esp32cam_url, timeout=10)
-        if response.status_code == 200:
-            img_array = np.array(bytearray(response.content), dtype=np.uint8)
-            img = cv2.imdecode(img_array, -1)
-            return img
+        response = requests.get(url)
+        img_array = np.array(bytearray(response.content), dtype=np.uint8)
+        img = cv2.imdecode(img_array, -1)
+        return img
     except Exception as e:
-        print(f"Error fetching image from ESP32-CAM: {str(e)}")
-    return None
+        print("Error fetching image:", e)
+        return None
 
-# Path to the directory containing Muskan's images
-path = '/Users/muskanshomef/Desktop/Face Recognition Car/ImagesBasic'
-images = []
-classNames = []
-mylist = os.listdir(path)
-print(mylist)
-for cl in mylist:
-    curImg = cv2.imread(f'{path}/{cl}')
-    images.append(curImg)
-    classNames.append(os.path.splitext(cl)[0])
-print(classNames)
+# Main function
+def main():
+    # URL of the ESP32-CAM serving the image
+    esp32_cam_url = "http://10.100.156.148/640x480.jpg"
+    ref_image = cv2.imread(r"/Users/pulkitbatra/Desktop/FaceRecognitionCar/ImagesBasic/Muskan.png")
+    DISTANCE = None
 
-# Function to compute face encodings
-def find_encodings(images):
-    encodeList = []
-    i = 0
-    for img in images:
-        # Check if the image is empty
-        if img is None:
-            print(f"Failed to read image {i + 1}/{len(images)}")
-            continue
-        
-        # Convert the image to RGB format
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        
-        # Find face encodings in the image
-        face_encodings = face_recognition.face_encodings(img)
-        
-        # Check if any face encodings are found
-        if len(face_encodings) > 0:
-            encode = face_encodings[0]  # Take the first face encoding
-            encodeList.append(encode)
-        else:
-            print(f"No face found in image {i + 1}/{len(images)}")
-        
-        # Print progress
-        print(f'Encoding {i + 1}/{len(images)} done!')
-        i += 1
-    return encodeList
+    # Find the focal length
+    ref_image_face_width, _, _, _ = face_data(ref_image, False, DISTANCE)
+    Focal_length_found = FocalLength(Known_distance, Known_width, ref_image_face_width)
 
-encodelistknown = find_encodings(images)
-print('Encoding Complete!')
-
-# Directions dictionary
-directions = {
-    1: "Left Back",
-    2: "Backward",
-    3: "Backward Right",
-    4: "Left",
-    5: "Stay Still",
-    6: "Right",
-    7: "Forward Left",
-    8: "Forward",
-    9: "Forward Right"
-}
-
-# Function to send direction to Arduino via serial port
-def send_direction(direction):
-    print("Direction:", directions[direction])
-    arduino.write(bytes([direction]))
-
-# Function to compute direction based on the detected face
-def compute_direction(bound, init_area=40000):
-    center = (320, 240)
-    curr = (bound[0] + bound[2] / 2, bound[1] + bound[3] / 2)
-    out = 5  # Stay still by default
-
-    if bound[2] * bound[3] > init_area + 5000 or bound[1] < 50:
-        out = 2  # Move backward if object is approaching or too close
-    elif bound[2] * bound[3] < init_area - 5000 or (bound[1] + bound[3]) > 430:
-        out = 8  # Move forward if object is moving away or too far
-    elif curr[0] > center[0] + 100:
-        out = 6  # Move right if object is to the right of the center
-    elif curr[0] < center[0] - 100:
-        out = 4  # Move left if object is to the left of the center
-    elif curr[1] < center[1] - 50:
-        out = 7  # Move forward-left if object is above the center
-    elif curr[1] > center[1] + 50:
-        out = 9  # Move forward-right if object is below the center
-
-    return out
-
-# Function to detect and display Muskan's face from ESP32-CAM
-def detect_and_display_esp32cam(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30), maxSize=(500, 500))
-
-    if len(faces) > 0:
-        max_area = -1
-        max_area_idx = 0
-        for i, (x, y, w, h) in enumerate(faces):
-            if w * h > max_area:
-                max_area = w * h
-                max_area_idx = i
-
-        rect = faces[max_area_idx]
-
-        # Check if the detected face matches Muskan's face
-        muskan_encodings = face_recognition.face_encodings(frame, [(rect[1], rect[0], rect[1] + rect[3], rect[0] + rect[2])])
-        if len(muskan_encodings) > 0:
-            match = face_recognition.compare_faces(encodelistknown, muskan_encodings[0])
-            if match[0]:  # Muskan's face is detected
-                direction = compute_direction(rect)
-                send_direction(direction)
-
-                # Draw rectangle and display the face
-                cv2.rectangle(frame, (rect[0], rect[1]), (rect[0] + rect[2], rect[1] + rect[3]), (0, 255, 0), 2)
-                cv2.putText(frame, "Muskan", (rect[0] + 6, rect[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        
-        cv2.imshow('ESP32-CAM', frame)
-
-# Fetch images from ESP32-CAM
-while True:
-    # Capture an image from ESP32-CAM
-    img = get_esp32cam_image()
-
-    if img is not None:
-        detect_and_display_esp32cam(img)
-        
-        if cv2.waitKey(1) == 27:  # ESC key
-            break
-
-try:
-    cap = cv2.VideoCapture(1)
-    if not cap.isOpened():
-        raise IOError("Failed to open camera")
+    # Connect to the Arduino
+    # Arduino = serial.Serial(baudrate=9600, port='cu.usbmodem1401')
+    Arduino = serial.Serial('/dev/cu.usbmodem101', 9600)
+    Direction = 0
+    Motor1_Speed = 0
+    Motor2_Speed = 0
+    Truing_Speed = 110
+    net_Speed = 180
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Failed to retrieve frame")
+        # Fetch image from ESP32-CAM
+        frame = fetch_image(esp32_cam_url)
+        frame_height, frame_width = 640,480
+        RightBound = 200
+        Left_Bound = 200
+
+        # Detect face and estimate distance
+        face_width_in_frame, Faces, FC_X, FC_Y = face_data(frame, True, DISTANCE)
+        for (face_x, face_y, face_w, face_h) in Faces:
+            if face_width_in_frame != 0:
+                Distance = Distance_finder(Focal_length_found, Known_width, face_width_in_frame)
+                Distance = round(Distance, 2)
+                DISTANCE = int(Distance)
+                print("Distance:", DISTANCE, "Direction:",Direction)
+
+                # Control the car based on face position and distance
+                if FC_X < Left_Bound:
+                    Motor1_Speed = Truing_Speed
+                    Motor2_Speed = Truing_Speed
+                    Direction = 3
+                elif FC_X > RightBound:
+                    Motor1_Speed = Truing_Speed
+                    Motor2_Speed = Truing_Speed
+                    Direction = 4
+                elif DISTANCE > 70 and DISTANCE <= 200:
+                    Motor1_Speed = net_Speed
+                    Motor2_Speed = net_Speed
+                    Direction = 2
+                elif DISTANCE > 20 and DISTANCE <= 70:
+                    Motor1_Speed = net_Speed
+                    Motor2_Speed = net_Speed
+                    Direction = 1
+                else:
+                    Motor1_Speed = 0
+                    Motor2_Speed = 0
+                    Direction = 0
+
+                # Display distance information and send control data to Arduino
+                cv2.putText(frame, f"Distance {DISTANCE} CMs", (face_x-6, face_y-6), fonts, 0.6, BLACK, 2)
+                data = f"A{Motor1_Speed}B{Motor2_Speed}D{Direction}"
+                print(DISTANCE)
+                Arduino.write(data.encode())
+                time.sleep(0.002)
+                Arduino.flushInput()
+
+        # Draw reference lines
+        # cv2.line(frame, (Left_Bound, 80), (Left_Bound, 480-80), YELLOW, 2)
+        # cv2.line(frame, (RightBound, 90), (RightBound, 480-280), YELLOW, 2)
+        cv2.line(frame, (160, 80), (160, 360), YELLOW, 2)
+        cv2.line(frame, (320, 90), (320, 360), YELLOW, 2)
+        cv2.imshow("frame", frame)
+
+        # Exit the loop on 'q' key press
+        if cv2.waitKey(1) == ord("q"):
             break
 
-        detect_and_display(frame)
-
-        if cv2.waitKey(1) == 27:  # ESC key
-            break
-
-except Exception as e:
-    print("Error:", e)
-
-finally:
-    cap.release()
+    Arduino.close()
     cv2.destroyAllWindows()
-    arduino.close()
+
+if __name__ == "__main__":
+    main()
+
+# How to run this nigga???
+# /usr/local/bin/python3 /Users/pulkitbatra/Desktop/FaceRecognitionCar/main2.py
